@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Generated dataset (synthetic MRI volumes, ~476 MB) -- regenerate with:
+#   python -m fedmed.prepare_data
+backend/data/
+
+# Trained checkpoints and run artifacts
+backend/models/
+backend/logs/
+
+# TLS material -- NEVER commit private keys or the CA
+backend/certs/
+*.key
+*.pem
+*.p12
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

@@ -1,5 +1,75 @@
-function Privacy() {
-  const securityFeatures = [
+import { useEffect, useState } from "react";
+
+import StatCard from "../components/StatCard";
+import { api } from "../lib/api";
+
+const EVENT_LABEL = {
+  dp_noise_applied: "Differential privacy noise applied",
+  update_encrypted: "Model update encrypted",
+  aggregation_completed: "Federated aggregation completed",
+  node_offline: "Hospital node dropped offline",
+  round_no_updates: "Round received no updates",
+};
+
+function formatTime(timestamp) {
+  if (!timestamp) return "";
+  const date = new Date(timestamp * 1000);
+  return date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function formatDetail(detail = {}) {
+  const parts = [];
+  if (detail.scheme) parts.push(detail.scheme);
+  if (detail.mode) parts.push(detail.mode);
+  if (detail.ciphertext_bytes)
+    parts.push(`${(detail.ciphertext_bytes / 1e6).toFixed(1)} MB`);
+  if (detail.sigma !== undefined) parts.push(`σ=${detail.sigma}`);
+  if (detail.patients) parts.push(`${detail.patients} patients`);
+  if (detail.round) parts.push(`round ${detail.round}`);
+  return parts.join(" · ");
+}
+
+/**
+ * Privacy and security monitoring.
+ *
+ * Shows the live posture of the HE and DP mechanisms plus the audit trail
+ * of every privacy-relevant event the aggregator recorded.
+ */
+function Privacy({ fed }) {
+  const { privacyEvents, securityEvents, status, nodes, summary } = fed;
+
+  const [posture, setPosture] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const data = await api.privacy();
+        if (!cancelled) setPosture(data);
+      } catch {
+        // The dashboard still works without the posture payload.
+      }
+    };
+    load();
+    const timer = setInterval(load, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  const he = posture?.he;
+  const dp = posture?.dp;
+  const epsilon = status?.dp_epsilon ?? posture?.accountant?.epsilon ?? 0;
+  const delta = status?.dp_delta ?? posture?.accountant?.delta ?? 1e-5;
+  const encryptedNodes = nodes.filter((n) => n.encrypted).length;
+  const totalBytes = nodes.reduce((sum, n) => sum + (n.payload_bytes || 0), 0);
+
+  const features = [
     {
       icon: "🔐",
       title: "Federated Learning",
@@ -10,16 +80,17 @@ function Privacy() {
     {
       icon: "🛡️",
       title: "Homomorphic Encryption",
-      status: "Active",
-      description:
-        "Model updates are protected using encrypted computation during aggregation.",
+      status: he?.enabled ? "Active" : "Disabled",
+      description: he?.enabled
+        ? `Model updates are protected with TenSEAL ${he.scheme} (${he.poly_modulus}-bit polynomial modulus) and aggregated on ciphertext.`
+        : "Model updates are encrypted during aggregation.",
     },
     {
       icon: "🔒",
       title: "TLS Communication",
       status: "Active",
       description:
-        "Secure encrypted communication is used between hospital nodes and the coordinator.",
+        "gRPC channels between the hospital nodes and the coordinator use mutual TLS with client certificate verification.",
     },
     {
       icon: "👤",
@@ -28,340 +99,194 @@ function Privacy() {
       description:
         "Patient records and MRI scans remain inside their respective hospital environments.",
     },
+    {
+      icon: "📊",
+      title: "Differential Privacy",
+      status: dp?.enabled ? "Active" : "Disabled",
+      description: dp?.enabled
+        ? `DP-SGD clips every patient gradient to C=${dp.clip_norm} and adds Gaussian noise with σ=${dp.noise_multiplier}·C.`
+        : "Per-patient gradient clipping and Gaussian noise.",
+    },
   ];
+
+  const guarantees = posture?.guarantees ?? [];
+
+  const allEvents = [...privacyEvents, ...securityEvents].sort(
+    (a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0),
+  );
 
   return (
     <div className="page">
-
-      {/* PAGE HEADER */}
-
       <div className="page-header">
-
         <div>
           <h1>Privacy & Security</h1>
           <p>
-            Monitor privacy-preserving mechanisms protecting federated healthcare AI
+            Monitor privacy-preserving mechanisms protecting federated
+            healthcare AI
           </p>
         </div>
 
         <div className="security-status">
-          <span className="security-dot"></span>
+          <span className="security-dot" />
           System Secure
         </div>
-
       </div>
-
-
-      {/* SECURITY OVERVIEW */}
 
       <div className="training-stats">
-
-        <div className="training-card">
-          <span>Privacy Status</span>
-          <strong>Protected</strong>
-          <p>Patient data secured</p>
-        </div>
-
-        <div className="training-card">
-          <span>Encryption</span>
-          <strong>Active</strong>
-          <p>Model updates encrypted</p>
-        </div>
-
-        <div className="training-card">
-          <span>Secure Nodes</span>
-          <strong>3 / 3</strong>
-          <p>All connections protected</p>
-        </div>
-
-        <div className="training-card">
-          <span>Data Shared</span>
-          <strong>0 GB</strong>
-          <p>No raw patient data</p>
-        </div>
-
+        <StatCard
+          label="Privacy Status"
+          value="Protected"
+          caption="Patient data secured"
+          tone="success"
+        />
+        <StatCard
+          label="Encryption"
+          value={he?.enabled ? "Active" : "Disabled"}
+          caption={
+            he?.enabled
+              ? `${he.scheme} · ${he.poly_modulus}-bit modulus`
+              : "Homomorphic encryption off"
+          }
+          tone="info"
+        />
+        <StatCard
+          label="DP Budget (ε)"
+          value={Number(epsilon).toFixed(3)}
+          caption={`δ = ${Number(delta).toExponential(1)} · ${
+            status?.dp_rounds ?? 0
+          } rounds accounted`}
+          tone="info"
+        />
+        <StatCard
+          label="Data Shared"
+          value="0 B"
+          caption={`${encryptedNodes} encrypted node uploads (${
+            (totalBytes / 1e6).toFixed(1)
+          } MB ciphertext)`}
+          tone="success"
+        />
       </div>
 
-
-      {/* SECURITY FEATURES */}
-
       <div className="panel">
-
         <div className="panel-header">
-
           <div>
             <h3>Privacy Protection Layers</h3>
-            <p>
-              Security mechanisms used by the FedMed platform
-            </p>
+            <p>Security mechanisms used by the FedMed platform</p>
           </div>
-
-          <span className="badge">
-            Protected
-          </span>
-
+          <span className="badge">Protected</span>
         </div>
-
 
         <div className="security-grid">
-
-          {securityFeatures.map((feature) => (
-            <div
-              className="security-card"
-              key={feature.title}
-            >
-
+          {features.map((feature) => (
+            <div className="security-card" key={feature.title}>
               <div className="security-card-top">
-
-                <div className="security-icon">
-                  {feature.icon}
-                </div>
-
-                <span className="security-active">
-                  ● {feature.status}
-                </span>
-
+                <div className="security-icon">{feature.icon}</div>
+                <span className="security-active">● {feature.status}</span>
               </div>
-
-              <h3>
-                {feature.title}
-              </h3>
-
-              <p>
-                {feature.description}
-              </p>
-
+              <h3>{feature.title}</h3>
+              <p>{feature.description}</p>
             </div>
           ))}
-
         </div>
-
       </div>
 
-
-      {/* DATA FLOW */}
-
       <div className="panel">
-
         <div className="panel-header">
-
           <div>
             <h3>Secure Federated Data Flow</h3>
-            <p>
-              How patient data remains protected during training
-            </p>
+            <p>How patient data remains protected during training</p>
           </div>
-
         </div>
-
 
         <div className="security-flow">
-
-          <div className="flow-item">
-
-            <div className="flow-icon">
-              🏥
+          {[
+            { icon: "🏥", title: "Hospital", note: "Private MRI Data" },
+            { icon: "🤖", title: "Local Training", note: "Model learns locally" },
+            { icon: "📉", title: "DP-SGD", note: "Clipped + noised update" },
+            { icon: "🔐", title: "Encrypted Update", note: "CKKS ciphertext" },
+            { icon: "🌐", title: "Global Model", note: "Secure aggregation" },
+          ].map((item, index, all) => (
+            <div className="flow-wrap" key={item.title}>
+              <div className="flow-item">
+                <div className="flow-icon">{item.icon}</div>
+                <strong>{item.title}</strong>
+                <span>{item.note}</span>
+              </div>
+              {index < all.length - 1 ? <div className="flow-arrow">→</div> : null}
             </div>
-
-            <strong>
-              Hospital
-            </strong>
-
-            <span>
-              Private MRI Data
-            </span>
-
-          </div>
-
-
-          <div className="flow-arrow">
-            →
-          </div>
-
-
-          <div className="flow-item">
-
-            <div className="flow-icon">
-              🤖
-            </div>
-
-            <strong>
-              Local Training
-            </strong>
-
-            <span>
-              Model learns locally
-            </span>
-
-          </div>
-
-
-          <div className="flow-arrow">
-            →
-          </div>
-
-
-          <div className="flow-item">
-
-            <div className="flow-icon">
-              🔐
-            </div>
-
-            <strong>
-              Encrypted Update
-            </strong>
-
-            <span>
-              Only model updates
-            </span>
-
-          </div>
-
-
-          <div className="flow-arrow">
-            →
-          </div>
-
-
-          <div className="flow-item">
-
-            <div className="flow-icon">
-              🌐
-            </div>
-
-            <strong>
-              Global Model
-            </strong>
-
-            <span>
-              Secure aggregation
-            </span>
-
-          </div>
-
+          ))}
         </div>
-
       </div>
 
-
-      {/* PRIVACY NOTICE */}
-
-      <div className="privacy-notice">
-
-        <div className="privacy-icon">
-          🔐
+      {guarantees.length ? (
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <h3>Formal Guarantees</h3>
+              <p>What each mechanism mathematically provides</p>
+            </div>
+          </div>
+          <div className="guarantee-list">
+            {guarantees.map((g) => (
+              <div className="guarantee-item" key={g.title}>
+                <div className="guarantee-icon">✔</div>
+                <div>
+                  <strong>{g.title}</strong>
+                  <p>{g.detail}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-
-        <div>
-
-          <h3>
-            Zero Raw Data Sharing
-          </h3>
-
-          <p>
-            FedMed follows a privacy-preserving federated learning
-            architecture. MRI scans and patient records remain
-            inside each participating hospital. The central
-            coordinator receives only protected model updates,
-            helping reduce the risk of exposing sensitive
-            healthcare information.
-          </p>
-
-        </div>
-
-      </div>
-
-
-      {/* SECURITY LOG */}
+      ) : null}
 
       <div className="panel">
-
         <div className="panel-header">
-
           <div>
             <h3>Security Activity</h3>
-            <p>
-              Recent privacy and security events
-            </p>
+            <p>Recent privacy and security events</p>
           </div>
-
         </div>
-
 
         <div className="security-log">
+          {allEvents.length === 0 ? (
+            <p className="muted">No privacy events recorded yet.</p>
+          ) : null}
 
-          <div className="log-item">
-
-            <span className="log-status">
-              ✓
-            </span>
-
-            <div>
-              <strong>
-                Hospital 1 secure connection established
-              </strong>
-
-              <p>
-                TLS connection verified
-              </p>
+          {allEvents.slice(0, 40).map((event, index) => (
+            <div className="log-item" key={`${event.event}-${index}`}>
+              <span className="log-status">
+                {event.event === "node_offline" ? "!" : "✓"}
+              </span>
+              <div>
+                <strong>
+                  {EVENT_LABEL[event.event] ??
+                    event.event.replace(/_/g, " ")}
+                </strong>
+                <p>{formatDetail(event.detail)}</p>
+              </div>
+              <span className="log-time">{formatTime(event.timestamp)}</span>
             </div>
-
-            <span className="log-time">
-              2 min ago
-            </span>
-
-          </div>
-
-
-          <div className="log-item">
-
-            <span className="log-status">
-              ✓
-            </span>
-
-            <div>
-              <strong>
-                Model update encrypted successfully
-              </strong>
-
-              <p>
-                Homomorphic encryption applied
-              </p>
-            </div>
-
-            <span className="log-time">
-              4 min ago
-            </span>
-
-          </div>
-
-
-          <div className="log-item">
-
-            <span className="log-status">
-              ✓
-            </span>
-
-            <div>
-              <strong>
-                Federated aggregation completed
-              </strong>
-
-              <p>
-                No raw patient data transferred
-              </p>
-            </div>
-
-            <span className="log-time">
-              6 min ago
-            </span>
-
-          </div>
-
+          ))}
         </div>
-
       </div>
 
+      {summary ? (
+        <div className="privacy-notice">
+          <div className="privacy-icon">🔐</div>
+          <div>
+            <h3>Zero Raw Data Sharing</h3>
+            <p>
+              FedMed follows a privacy-preserving federated learning
+              architecture. MRI scans and patient records remain inside each
+              participating hospital. The central coordinator receives only
+              protected model updates, and the federated global model reached{" "}
+              {summary.dice_ratio_pct ?? 0}% of the centralized baseline Dice
+              score without exposing a single patient record.
+            </p>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

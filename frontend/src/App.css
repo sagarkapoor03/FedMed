@@ -386,6 +386,15 @@ a {
   margin-bottom: 7px;
 }
 
+/* Rendered MRI slice / tumour-mask preview from the backend. */
+.mri-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 9px;
+  image-rendering: pixelated;
+}
+
 .mri-box p {
   font-size: 12px;
   color: #64748b;
@@ -1575,4 +1584,575 @@ tbody tr:hover {
     text-align: left;
   }
 
+}
+
+/* =========================================
+   LIVE DASHBOARD COMPONENTS
+   (added for the API-connected dashboard)
+========================================= */
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.topbar-error {
+  padding: 7px 13px;
+  border-radius: 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 0.82rem;
+  font-weight: 550;
+  max-width: 420px;
+}
+
+.server-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: 99px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: var(--surface-alt);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.server-status .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.server-status-online {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.server-status-online .status-dot {
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.server-status-connecting {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.server-status-connecting .status-dot {
+  background: var(--warning);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.server-status-offline,
+.server-status-error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.server-status-offline .status-dot,
+.server-status-error .status-dot {
+  background: var(--danger);
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* -- stat cards ---------------------------------------------------- */
+
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stat-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.stat-card-icon {
+  font-size: 1.1rem;
+  opacity: 0.85;
+  line-height: 1;
+}
+
+.stat-card-success {
+  border-left: 3px solid var(--success);
+}
+
+.stat-card-danger {
+  border-left: 3px solid var(--danger);
+}
+
+.stat-card-info {
+  border-left: 3px solid var(--info);
+}
+
+/* -- charts -------------------------------------------------------- */
+
+.chart {
+  width: 100%;
+  min-height: 260px;
+}
+
+.chart-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  padding: 48px 20px;
+  text-align: center;
+}
+
+.chart-empty p {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* -- hospital list on the dashboard -------------------------------- */
+
+.hospital-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.baseline-callout {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--success-soft);
+  border: 1px solid rgba(22, 163, 74, 0.22);
+}
+
+.baseline-callout span {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--success);
+}
+
+.baseline-callout strong {
+  display: block;
+  font-size: 1.25rem;
+  color: var(--text-strong);
+  margin: 2px 0 6px;
+}
+
+.baseline-callout p {
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+/* -- node cards ---------------------------------------------------- */
+
+.node-progress {
+  margin: 16px 0 12px;
+}
+
+.node-progress-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.node-progress-label strong {
+  color: var(--text-strong);
+  font-size: 0.85rem;
+}
+
+.status-training {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.status-pending {
+  background: var(--surface-alt);
+  color: var(--text-muted);
+}
+
+/* -- training controls --------------------------------------------- */
+
+.launch-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 18px;
+}
+
+.launch-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.launch-notice {
+  width: 100%;
+  margin-top: 4px;
+  padding: 9px 13px;
+  border-radius: 8px;
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  font-size: 0.85rem;
+  font-weight: 550;
+}
+
+.muted {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 10px 0;
+}
+
+/* -- training process steps ---------------------------------------- */
+
+.training-process {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+
+.process-step-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 130px;
+}
+
+.process-step-wrap:last-child {
+  flex: 0 0 auto;
+}
+
+.process-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  text-align: center;
+  flex: 1;
+  min-width: 96px;
+}
+
+.process-step strong {
+  font-size: 0.8rem;
+  color: var(--text-strong);
+}
+
+.process-step span {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.process-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-alt);
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.process-step.completed .process-icon {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.process-line {
+  flex: 1;
+  height: 2px;
+  background: var(--border);
+  min-width: 20px;
+}
+
+/* -- MRI analysis -------------------------------------------------- */
+
+.analysis-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.analysis-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 260px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 30px;
+}
+
+.analysis-placeholder p {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.analysis-error p {
+  color: var(--danger);
+}
+
+.scan-image {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  background: #0f172a;
+  aspect-ratio: 1;
+  object-fit: contain;
+  image-rendering: auto;
+}
+
+.brain-placeholder,
+.segmentation-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 3rem;
+}
+
+.class-dice-panel {
+  margin-top: 22px;
+  background: var(--surface-alt);
+  border: none;
+  box-shadow: none;
+}
+
+.class-dice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.class-dice-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.class-dice-item span {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.class-dice-item strong {
+  font-size: 1.3rem;
+  color: var(--text-strong);
+}
+
+/* -- privacy page -------------------------------------------------- */
+
+.guarantee-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.guarantee-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 13px 15px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+}
+
+.guarantee-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--success-soft);
+  color: var(--success);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.guarantee-item strong {
+  display: block;
+  color: var(--text-strong);
+  font-size: 0.92rem;
+}
+
+.guarantee-item p {
+  font-size: 0.85rem;
+  color: var(--text);
+  margin-top: 2px;
+}
+
+.security-flow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.flow-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 130px;
+}
+
+.flow-wrap:last-child {
+  flex: 0 0 auto;
+}
+
+.flow-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  text-align: center;
+  flex: 1;
+  min-width: 100px;
+}
+
+.flow-item strong {
+  font-size: 0.82rem;
+  color: var(--text-strong);
+}
+
+.flow-item span {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.flow-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: var(--primary-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+}
+
+/* -- tables -------------------------------------------------------- */
+
+.table-wrapper {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+thead th {
+  text-align: left;
+  padding: 11px 14px;
+  font-size: 0.74rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+tbody td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+tbody tr:hover {
+  background: var(--surface-alt);
+}
+
+.round-completed {
+  color: var(--success);
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+
+.round-running {
+  color: var(--warning);
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+
+/* -- responsive ---------------------------------------------------- */
+
+@media (max-width: 1080px) {
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 860px) {
+  .sidebar {
+    position: static;
+    width: 100%;
+    min-height: auto;
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
+  }
+
+  .logo {
+    height: auto;
+    border-bottom: none;
+    border-right: 1px solid var(--border);
+    padding: 0 16px;
+  }
+
+  .sidebar nav {
+    flex-direction: row;
+    padding: 12px;
+  }
+
+  .sidebar-bottom {
+    margin-top: 0;
+    border-top: none;
+    padding: 12px;
+  }
+
+  .main-content {
+    margin-left: 0;
+    width: 100%;
+    padding: 20px 16px;
+  }
 }

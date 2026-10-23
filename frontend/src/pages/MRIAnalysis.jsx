@@ -1,30 +1,69 @@
-function MRIAnalysis() {
-  const scans = [
-    {
-      id: "MRI-001",
-      hospital: "Hospital 1",
-      patient: "Patient A",
-      status: "Analyzed",
-      accuracy: "92.6%",
-      tumor: "Detected",
+import { useCallback, useEffect, useState } from "react";
+
+import MRIViewer from "../components/MRIViewer";
+import StatCard from "../components/StatCard";
+
+/**
+ * MRI segmentation explorer.
+ *
+ * Runs the trained global model over a held-out validation volume and
+ * renders the tumour mask the backend returns.
+ */
+function MRIAnalysis({ fed }) {
+  const { actions, latest } = fed;
+
+  const [analysis, setAnalysis] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [model, setModel] = useState("federated");
+  const [sample, setSample] = useState("");
+
+  const runAnalysis = useCallback(
+    async (which = model, index = null) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await actions.analyze(which, index);
+        setAnalysis(result);
+      } catch (err) {
+        setError(err.message);
+        setAnalysis(null);
+      } finally {
+        setLoading(false);
+      }
     },
-    {
-      id: "MRI-002",
-      hospital: "Hospital 2",
-      patient: "Patient B",
-      status: "Analyzed",
-      accuracy: "94.1%",
-      tumor: "Detected",
-    },
-    {
-      id: "MRI-003",
-      hospital: "Hospital 3",
-      patient: "Patient C",
-      status: "Processing",
-      accuracy: "--",
-      tumor: "Processing",
-    },
-  ];
+    [actions, model],
+  );
+
+  useEffect(() => {
+    // Kick off the first inference once the page mounts. The state
+    // updates happen in the promise callback, not synchronously.
+    let cancelled = false;
+
+    actions
+      .analyze("federated", null)
+      .then((result) => {
+        if (!cancelled) setAnalysis(result);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [actions]);
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    const index = sample === "" ? null : Number(sample);
+    runAnalysis(model, index);
+  };
+
+  const dataset = analysis?.dataset;
+  const modelDice = analysis?.available ? analysis.volume_dice : null;
+  const totalScans = dataset?.num_val ?? 0;
+  const trainScans = dataset?.num_train ?? 0;
 
   return (
     <div className="page">
@@ -35,209 +74,187 @@ function MRIAnalysis() {
         </div>
 
         <div className="training-status">
-          <span className="training-dot"></span>
-          Model Ready
+          <span className="training-dot" />
+          {analysis?.available ? "Model Ready" : "Awaiting Model"}
         </div>
       </div>
-
-      {/* Analysis Overview */}
 
       <div className="training-stats">
-        <div className="training-card">
-          <span>Total MRI Scans</span>
-          <strong>325</strong>
-          <p>Across all hospitals</p>
-        </div>
-
-        <div className="training-card">
-          <span>Scans Analyzed</span>
-          <strong>284</strong>
-          <p>87.4% completed</p>
-        </div>
-
-        <div className="training-card">
-          <span>Tumors Detected</span>
-          <strong>76</strong>
-          <p>AI predictions</p>
-        </div>
-
-        <div className="training-card">
-          <span>Model Accuracy</span>
-          <strong>92.6%</strong>
-          <p>Current global model</p>
-        </div>
+        <StatCard
+          label="Training Volumes"
+          value={trainScans}
+          caption="Pooled across all hospitals"
+        />
+        <StatCard
+          label="Held-out Volumes"
+          value={totalScans}
+          caption="Used for validation"
+        />
+        <StatCard
+          label="Tumour Voxels Found"
+          value={analysis?.tumor_voxels ?? "—"}
+          caption={
+            analysis?.tumor_fraction
+              ? `${analysis.tumor_fraction}% of the volume`
+              : "Run an analysis"
+          }
+        />
+        <StatCard
+          label="Volume Dice Score"
+          value={modelDice !== null ? `${modelDice}%` : "—"}
+          caption={
+            latest
+              ? `Global model, round ${latest.round}`
+              : "No federated round yet"
+          }
+          tone="success"
+        />
       </div>
-
-      {/* MRI Visualization */}
 
       <div className="panel mri-analysis-panel">
         <div className="panel-header">
           <div>
             <h3>Latest MRI Analysis</h3>
-            <p>Brain tumor segmentation using global federated model</p>
+            <p>Brain tumor segmentation using the global federated model</p>
           </div>
-
           <span className="badge">AI Analysis</span>
         </div>
 
-        <div className="analysis-view">
+        <form className="analysis-controls" onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label htmlFor="model">Model</label>
+            <select
+              id="model"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+            >
+              <option value="federated">Federated global model</option>
+              <option value="baseline">Centralized baseline</option>
+            </select>
+          </div>
 
-          <div className="scan-container">
-            <div className="scan-image">
-              <div className="brain-placeholder">
-                🧠
+          <div className="form-group">
+            <label htmlFor="sample">Sample index</label>
+            <input
+              id="sample"
+              type="number"
+              min="0"
+              placeholder="auto"
+              value={sample}
+              onChange={(e) => setSample(e.target.value)}
+            />
+          </div>
+
+          <button type="submit" className="save-button" disabled={loading}>
+            {loading ? "Analyzing…" : "Run Analysis"}
+          </button>
+        </form>
+
+        <MRIViewer analysis={analysis} loading={loading} error={error} />
+
+        {analysis?.available ? (
+          <div className="analysis-result">
+            <div className="result-item">
+              <span>Segmentation Accuracy</span>
+              <strong>{analysis.volume_dice}%</strong>
+            </div>
+            <div className="result-item">
+              <span>Slice Dice Score</span>
+              <strong>{analysis.slice_dice}%</strong>
+            </div>
+            <div className="result-item">
+              <span>Tumour Status</span>
+              <strong className="tumor-detected">
+                ● {analysis.tumor_voxels > 0 ? "Detected" : "None"}
+              </strong>
+            </div>
+            <div className="result-item">
+              <span>Model</span>
+              <strong>
+                {analysis.model === "baseline" ? "FedMed-Base" : "FedMed-v1.0"}
+              </strong>
+            </div>
+          </div>
+        ) : null}
+
+        {analysis?.per_class_dice ? (
+          <div className="panel class-dice-panel">
+            <div className="panel-header">
+              <div>
+                <h3>Per-class Dice</h3>
+                <p>Volume-level scores for each tumour sub-region</p>
               </div>
             </div>
-
-            <div className="scan-label">
-              <strong>Original MRI Scan</strong>
-              <span>MRI-001 • Hospital 1</span>
+            <div className="class-dice-grid">
+              {Object.entries(analysis.per_class_dice).map(([cls, value]) => (
+                <div className="class-dice-item" key={cls}>
+                  <span>{analysis.class_names?.[cls] ?? `Class ${cls}`}</span>
+                  <strong>{Number(value).toFixed(2)}%</strong>
+                  <div className="mini-progress">
+                    <div
+                      className="mini-progress-fill"
+                      style={{ width: `${Math.min(100, value)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-
-          <div className="analysis-arrow">
-            →
-          </div>
-
-          <div className="scan-container">
-            <div className="scan-image segmentation-image">
-              <div className="segmentation-placeholder">
-                🎯
-              </div>
-            </div>
-
-            <div className="scan-label">
-              <strong>Predicted Tumor Mask</strong>
-              <span>AI Segmentation Output</span>
-            </div>
-          </div>
-
-        </div>
-
-        {/* Result */}
-
-        <div className="analysis-result">
-
-          <div className="result-item">
-            <span>Segmentation Accuracy</span>
-            <strong>92.6%</strong>
-          </div>
-
-          <div className="result-item">
-            <span>Dice Score</span>
-            <strong>89.4%</strong>
-          </div>
-
-          <div className="result-item">
-            <span>Tumor Status</span>
-            <strong className="tumor-detected">
-              ● Detected
-            </strong>
-          </div>
-
-          <div className="result-item">
-            <span>Model Version</span>
-            <strong>FedMed-v1.0</strong>
-          </div>
-
-        </div>
+        ) : null}
       </div>
 
-      {/* Recent Scans */}
-
       <div className="panel recent-scans">
-
         <div className="panel-header">
           <div>
-            <h3>Recent MRI Scans</h3>
-            <p>Latest analysis results from federated hospitals</p>
+            <h3>Dataset Distribution</h3>
+            <p>Non-IID partition across the participating hospitals</p>
           </div>
         </div>
 
         <div className="table-wrapper">
-
           <table>
-
             <thead>
               <tr>
-                <th>Scan ID</th>
                 <th>Hospital</th>
-                <th>Patient</th>
-                <th>Status</th>
-                <th>Accuracy</th>
-                <th>Tumor</th>
+                <th>Node ID</th>
+                <th>Training Volumes</th>
+                <th>Scanner Bias</th>
               </tr>
             </thead>
-
             <tbody>
-
-              {scans.map((scan) => (
-                <tr key={scan.id}>
-
+              {(dataset?.hospitals ?? []).map((h) => (
+                <tr key={h.hospital_id}>
                   <td>
-                    <strong>{scan.id}</strong>
+                    <strong>{h.hospital_id.replace("hospital-", "Hospital ")}</strong>
                   </td>
-
-                  <td>{scan.hospital}</td>
-
-                  <td>{scan.patient}</td>
-
-                  <td>
-                    <span
-                      className={
-                        scan.status === "Analyzed"
-                          ? "round-completed"
-                          : "round-running"
-                      }
-                    >
-                      ● {scan.status}
-                    </span>
-                  </td>
-
-                  <td>
-                    <strong>{scan.accuracy}</strong>
-                  </td>
-
-                  <td>
-                    {scan.tumor === "Detected" ? (
-                      <span className="tumor-detected">
-                        ● Detected
-                      </span>
-                    ) : (
-                      <span className="processing-text">
-                        ● Processing
-                      </span>
-                    )}
-                  </td>
-
+                  <td>{h.node_id}</td>
+                  <td>{h.train}</td>
+                  <td>{Number(h.scanner_bias).toFixed(2)}</td>
                 </tr>
               ))}
-
+              {!dataset?.hospitals?.length ? (
+                <tr>
+                  <td colSpan="4" className="muted">
+                    Dataset manifest not available.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
-
           </table>
-
         </div>
-
       </div>
-
-      {/* Privacy Notice */}
 
       <div className="privacy-notice">
         <div className="privacy-icon">🔐</div>
-
         <div>
           <h3>Privacy-Preserving Analysis</h3>
-
           <p>
-            MRI data remains securely stored at each hospital.
-            Only model updates are exchanged through the
-            federated learning system. Raw patient data is
-            never shared with the central server.
+            MRI data remains securely stored at each hospital. Only model
+            updates are exchanged through the federated learning system. Raw
+            patient data is never shared with the central server.
           </p>
         </div>
       </div>
-
     </div>
   );
 }

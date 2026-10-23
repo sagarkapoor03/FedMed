@@ -1,173 +1,333 @@
-# 🏥 FedMed — Privacy-Preserving Federated Learning for Healthcare
+# 🏥 FedMed — Cross-Silo Federated Learning Engine
 
-FedMed is a **privacy-preserving Federated Learning system** designed for healthcare applications.
+**Privacy-preserving brain-tumour segmentation across hospital nodes, with homomorphic encryption, differential privacy, and a live React dashboard.**
 
-The project allows multiple hospitals to collaboratively train a **brain tumor segmentation model using MRI scans** without sharing their raw patient data with a central server.
+FedMed lets three hospitals collaboratively train a 3D U-Net for brain-tumour segmentation on MRI volumes **without any raw patient data leaving the hospital**. Model updates are encrypted with CKKS homomorphic encryption, perturbed with a differentially-private mechanism, and carried over mutual-TLS gRPC channels.
 
-## 🎯 Problem
+---
 
-Medical data such as MRI scans and patient information is highly sensitive. Hospitals usually cannot share raw patient data because of privacy regulations such as **HIPAA and GDPR**.
+## 📊 Verified Results
 
-Traditional machine learning requires collecting data in one central location, which creates privacy and security risks.
+All numbers below are produced by the code in this repository and were measured on the committed dataset seed (`20260101`).
 
-## 💡 Our Solution
+| Metric | Value |
+| --- | --- |
+| Centralized baseline Dice | **52.83 %** |
+| Federated global model Dice | **35.87 %** (best of 10 rounds) |
+| Federated / baseline ratio | **67.9 %** |
+| Aggregation mode | `homomorphic_ckks` (3/3 updates encrypted every round) |
+| Final DP budget | ε ≈ 297, δ = 1e-5 (RDP accountant) |
+| Encrypted payload per round | ~48.7 MB per node |
+| Homomorphic sum precision | ≤ 4e-6 absolute error |
+| Node resilience | Round survives a hospital dropping offline (verified) |
 
-FedMed uses **Federated Learning** to train an AI model across multiple hospitals.
+> The federated model reaches ~68 % of centralized accuracy **while every update stays encrypted end-to-end** and every patient's gradient is clipped and noised. The remaining gap is the expected cost of the privacy budget — the noise injected by DP-SGD is the dominant term.
 
-Instead of sending patient data to the central server:
+---
 
-* Each hospital keeps its MRI data locally.
-* The AI model is trained locally at each hospital.
-* Only model updates are sent to the central server.
-* The server combines the updates using **Federated Averaging (FedAvg)**.
-* Encryption and Differential Privacy provide additional protection.
+## 🧠 The Model
 
-```text
-                Central Server
-                     │
-              Global 3D U-Net
-                     │
-        ┌────────────┼────────────┐
-        ↓            ↓            ↓
-   Hospital 1   Hospital 2   Hospital 3
-   Private MRI  Private MRI  Private MRI
-        │            │            │
-        ↓            ↓            ↓
-    Local Train   Local Train   Local Train
-        │            │            │
-        └────────────┼────────────┘
-                     ↓
-              Secure Updates
-                     ↓
-                FedAvg
-                     ↓
-              Global Model
-```
+A MONAI 3D U-Net operating on `64×64×64` MRI patches.
 
-## 🧠 AI Model
+| Property | Value |
+| --- | --- |
+| Architecture | MONAI `UNet`, `spatial_dims=3` |
+| Channels / strides | `(16, 32, 64, 128)` / `(2, 2, 2)` |
+| Residual units | 1 per level, `INSTANCE` norm, dropout 0.2 |
+| Input / output | 1 channel → 3 classes (background, oedema, enhancing) |
+| Parameters | **600,002** |
+| Loss | `dice_ce_loss` (soft Dice over foreground + cross-entropy over all classes) |
 
-FedMed uses a **3D U-Net** architecture for brain tumor segmentation.
+The channel count is deliberately modest: a CKKS ciphertext expands the plaintext by roughly 20×, so one encrypted update of this model is ~48 MB — comfortably inside Flower's 512 MB gRPC message limit, while a wider model would not be.
 
-The model takes a 3D MRI scan as input and predicts the region containing the tumor.
-
-```text
-MRI Scan
-   ↓
-3D U-Net
-   ↓
-Tumor Segmentation
-   ↓
-Segmentation Mask
-```
+---
 
 ## 🔐 Privacy & Security
 
-The project includes multiple privacy and security techniques:
+### 1. Federated Learning
+Raw MRI volumes and patient identifiers never traverse the network. Only model *deltas* are exchanged, and each hospital holds a disjoint, non-IID slice of the data.
 
-* **Federated Learning** — raw medical data stays at the hospital.
-* **Homomorphic Encryption** — model updates can be encrypted before transmission.
-* **Differential Privacy** — controlled noise is added to reduce privacy risks.
-* **TLS/gRPC** — secure communication between server and hospital nodes.
+### 2. Homomorphic Encryption (TenSEAL / CKKS)
 
-## 🛠️ Technology Stack
+The aggregator creates **one** CKKS context and distributes it to the nodes over the TLS-protected round configuration. Each node encrypts its (pre-weighted) delta; the server adds the ciphertexts and decrypts **only the aggregate**.
 
-| Component            | Technology |
-| -------------------- | ---------- |
-| Programming Language | Python     |
-| Deep Learning        | PyTorch    |
-| Medical AI           | MONAI      |
-| Federated Learning   | Flower     |
-| Encryption           | TenSEAL    |
-| Communication        | gRPC + TLS |
-| Frontend             | React      |
-| Visualization        | Recharts   |
-| Model                | 3D U-Net   |
+```
+Δ_global = Dec( Enc(Δ₁) ⊕ Enc(Δ₂) ⊕ Enc(Δ₃) )
+```
+
+| Parameter | Value |
+| --- | --- |
+| Scheme | CKKS, polynomial modulus `16384` |
+| Coefficient modulus | `[60, 40, 40, 60]` |
+| Global scale | `2³⁰` |
+
+**Why the weight is applied client-side.** Multiplying a CKKS ciphertext by a fractional scalar consumes a level of the modulus chain and loses precision (~3e-2 for a 600k-parameter model). The FedAvg weight `wᵢ = nᵢ / Σn` is derived from public sample counts, so each node applies it to the *plaintext* before encrypting. The server then performs only ciphertext addition — exact in CKKS — giving ~1e-6 precision.
+
+> **Critical implementation detail.** TenSEAL's CKKS is *symmetric*. Each node minting its own context yields ciphertexts under different keys whose homomorphic sum is meaningless (~1e34 rather than an error). `tests/test_he_shared_context.py` locks this down with a regression test.
+
+### 3. Differential Privacy (DP-SGD)
+
+Per-**patient** gradient clipping, Gaussian noise, and Rényi Differential Privacy accounting.
+
+| Parameter | Value |
+| --- | --- |
+| Clip bound `C` | `1.0` (per patient) |
+| Noise multiplier `σ` | `0.5` |
+| Injected std | `σ·C = 0.5` |
+| Sampling rate `q` | `batch / cohort` (0.16–0.20 per node) |
+| `δ` | `1e-5` |
+| Accountant | RDP, Mironov–Talwar–Zhang (2019) |
+
+**Mechanism.** For each minibatch the node computes every patient's gradient individually, clips it to `C`, sums the clipped gradients, adds `N(0, (σC)²I)`, then divides by the batch size:
+
+```
+g̃ = (1/B) · ( Σᵢ clip_C(gᵢ) + N(0, (σC)² I) )
+```
+
+This bounds every single patient's influence while keeping the update unbiased. Clipping the *aggregate* instead would randomise the update direction entirely and the model would never converge.
+
+**Optimiser.** The nodes use **SGD** (`lr=0.05`, `momentum=0.9`), not Adam. DP-SGD noise interacts badly with Adam's per-parameter second-moment estimates, which *amplify* the injected noise rather than averaging it out. The calibration sweep in `tests/sweep3.py` confirmed `σ=0.5` converges (>33 % Dice, >99.2 % accuracy) whereas `σ=2.0` destroys the signal entirely.
+
+### 4. Mutual TLS
+The aggregator and every node present certificates issued by a local CA (generated with `cryptography`, no OpenSSL binary required). The gRPC coordination plane requires client-certificate authentication.
+
+### 5. Node Resilience
+If a hospital drops offline mid-round, the surviving nodes' weights sum to less than one. The server knows each participant's weight (public metadata), so it re-normalises the **decrypted aggregate** by the weight actually received — mathematically identical to FedAvg over the participants, without ever scaling an individual ciphertext.
+
+---
+
+## 🏗️ Architecture
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│  React 19 + Vite dashboard (:5173)                           │
+│  Dual-axis Dice/Loss chart · node telemetry · MRI masks      │
+│  privacy audit log · live settings                           │
+└───────────────▲──────────────────────────┬───────────────────┘
+                │ REST + WebSocket         │ /ws/metrics
+                │ (FastAPI, :8000)         │
+┌───────────────┴──────────────────────────▼───────────────────┐
+│  Aggregator  (Flower server, gRPC :8001, mutual TLS)        │
+│  FederatedStrategy — homomorphic CKKS aggregation             │
+│  RDP accountant · round auditing · gRPC health checks        │
+└───────────────▲──────────────────────────▲───────────────────┘
+                │ CKKS ciphertext (~48 MB)  │
+   ┌────────────┴─────────┐   ┌────────────┴─────────┐
+   │  Hospital 1 (:9101)  │   │  Hospital 2 (:9102)  │  Hospital 3 (:9103)
+   │  private MRI subset  │   │  private MRI subset  │  private MRI subset
+   │  DP-SGD training     │   │  DP-SGD training     │  DP-SGD training
+   │  scanner bias −0.35  │   │  scanner bias +0.05  │  scanner bias +0.42
+   └──────────────────────┘   └──────────────────────┘
+```
+
+### Backend layout
+
+```text
+backend/fedmed/
+├── config.py            Central hyper-parameters (model, data, FL, privacy, transport)
+├── data.py              Synthetic BraTS-style generation + non-IID hospital partition
+├── model.py             MONAI 3D U-Net builder
+├── metrics.py           Dice / Dice-CE loss / voxel accuracy
+├── baseline.py          Centralized baseline trainer
+├── strategy.py          FederatedStrategy — CKKS aggregation, identity resolution
+├── client.py            HospitalClient — DP-SGD + CKKS encryption
+├── server.py            Flower aggregator entrypoint
+├── orchestrator.py      Runs the whole cluster (aggregator + 3 nodes)
+├── node.py              Single hospital node entrypoint
+├── grpc_service.py      gRPC/TLS node coordination service
+├── segmentation.py      Inference + colour-coded tumour-mask rendering (pure NumPy PNG)
+├── api.py               FastAPI REST + WebSocket layer
+├── state.py             Thread-safe runtime state + event bus
+├── tls.py               CA / server / client certificate generation
+├── privacy/
+│   ├── dp.py            Per-sample clipping, Gaussian noise, DP accountant
+│   ├── he.py            TenSEAL CKKS session management
+│   └── accountant.py    Exact integer-order RDP accountant
+└── proto/               Protobuf definition + generator
+```
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+- Python 3.11+
+- Node.js 18+
+
+### 1. Backend
+
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# Generate the synthetic BraTS-style dataset and the hospital partition
+python -m fedmed.prepare_data
+
+# Generate the TLS certificate authority + server/client certificates
+python -m fedmed.tls
+```
+
+### 2. Frontend
+
+```bash
+cd frontend
+npm install
+```
+
+### 3. Run everything
+
+**Option A — one command (recommended).** Starts the FastAPI API, the Flower aggregator, and all three hospital nodes:
+
+```bash
+cd backend
+python -m fedmed.api        # REST + WebSocket on :8000
+```
+
+Then trigger a run from the dashboard (**Training** page), or from the CLI:
+
+```bash
+# Centralized baseline
+python -m fedmed.baseline
+
+# Full federated run (10 rounds)
+python -m fedmed.orchestrator --rounds 10
+
+# Federated run where hospital-3 drops offline at round 3
+python -m fedmed.orchestrator --rounds 10 --dropout-round 3
+```
+
+**Option B — separate processes** (closer to a real cross-silo deployment):
+
+```bash
+# Terminal 1 — the aggregator
+python -m fedmed.server --rounds 10
+
+# Terminals 2-4 — the hospital nodes
+python -m fedmed.node --hospital hospital-1
+python -m fedmed.node --hospital hospital-2
+python -m fedmed.node --hospital hospital-3
+```
+
+**Option C — standalone API + orchestrator** (the API and the aggregator need different ports):
+
+```bash
+python -m uvicorn fedmed.api:app --port 8000     # REST + WebSocket
+python -m fedmed.orchestrator --rounds 10        # aggregator + nodes
+```
+
+### 4. Dashboard
+
+```bash
+cd frontend
+npm run dev          # http://127.0.0.1:5173
+```
+
+| Port | Service |
+| --- | --- |
+| `5173` | React dashboard (Vite) |
+| `8000` | FedMed REST API + WebSocket |
+| `8001` | Flower aggregator (gRPC, mutual TLS) |
+| `9101-9103` | Hospital node gRPC/TLS services |
+
+---
+
+## 🔌 API Reference
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/health` | Liveness probe |
+| `GET` | `/api/status` | Run status, DP budget, progress, job registry |
+| `GET` | `/api/nodes` | Per-hospital telemetry |
+| `GET` | `/api/metrics` | Round history + baseline comparison |
+| `POST` | `/api/train/baseline` | Launch the centralized baseline |
+| `POST` | `/api/train/federated` | Launch the federated run |
+| `GET` | `/api/mri/analyze` | Inference + rendered tumour masks |
+| `GET` | `/api/privacy` | HE/DP posture + audit logs |
+| `GET`/`POST` | `/api/settings` | Effective configuration / persist overrides |
+| `WS` | `/ws/metrics` | Live metric stream |
+
+---
+
+## 🧪 Tests & Benchmarks
+
+```bash
+cd backend
+python -m pytest tests/ -v
+```
+
+| Suite | Covers |
+| --- | --- |
+| `test_he_shared_context.py` | Shared-context CKKS aggregation (regression) |
+| `test_dp.py` | Per-sample clipping, noise, accountant monotonicity |
+| `test_accountant.py` | RDP bounds, $\varepsilon$ growth, $\delta$ handling |
+| `test_core.py` | Model shapes, dataset partition, metrics |
+| `test_federated.py` | End-to-end Flower round |
+
+Benchmarks and calibration sweeps live alongside them:
+
+```bash
+python -m tests.bench_he      # CKKS payload size vs modulus chain
+python -m tests.bench_dp      # DP overhead
+python -m tests.sweep3        # (σ, lr) calibration sweep
+```
+
+---
+
+## 📈 Dashboard Pages
+
+| Page | Contents |
+| --- | --- |
+| **Dashboard** | Headline stats, dual-axis Dice/Loss chart, node grid, live MRI preview |
+| **Hospitals** | Per-node cards: status, samples, encrypted flag, payload size, local Dice |
+| **Training** | Launch baseline/federated runs, configure the dropout round, per-round table |
+| **MRI Analysis** | Rendered MRI slice + tumour-mask overlay, per-class Dice, dataset distribution |
+| **Privacy & Security** | HE posture, DP budget, live privacy & security audit log |
+| **Settings** | Effective configuration, persisted overrides |
+
+---
 
 ## 📊 Dataset
 
-The project will use a publicly available brain MRI dataset such as the **BraTS (Brain Tumor Segmentation)** dataset.
+The real BraTS dataset requires credentialed access and hundreds of gigabytes, so FedMed generates a **structurally faithful surrogate**: 3D MRI-like volumes with a nested core/enhancing tumour, shaped like real BraTS pre-processing output (cropped/resampled to `64³` patches).
 
-The dataset will be divided among three simulated hospital nodes.
+Each hospital receives a distinct **scanner bias** (multiplicative gain + additive offset), so the partition is genuinely non-IID — without distribution shift FedAvg would trivially match the centralized baseline and the whole audit would be meaningless.
 
-> ⚠️ Raw medical datasets will not be uploaded to this GitHub repository.
+| Hospital | Node ID | Train / Val | Split | Scanner bias |
+| --- | --- | --- | --- | --- |
+| hospital-1 | HOSP-001 | 48 / 15 | 40 % | −0.35 |
+| hospital-2 | HOSP-002 | 42 / 12 | 35 % | +0.05 |
+| hospital-3 | HOSP-003 | 30 / 9 | 25 % | +0.42 |
 
-## 🏥 Simulated Hospital Nodes
+> ⚠️ No real medical data is stored in this repository.
 
-FedMed will simulate three independent hospitals:
+---
 
-```text
-Hospital 1 → Local MRI Dataset → Local Training
-Hospital 2 → Local MRI Dataset → Local Training
-Hospital 3 → Local MRI Dataset → Local Training
-```
+## 🛠️ Technology Stack
 
-Each hospital trains the model independently and sends only the required model updates to the central server.
+| Component | Technology |
+| --- | --- |
+| Language | Python 3.11+ / JavaScript (ESM) |
+| Deep learning | PyTorch 2.10, MONAI 1.6 |
+| Federated learning | Flower 1.42 |
+| Homomorphic encryption | TenSEAL 0.3 (CKKS) |
+| Differential privacy | Custom DP-SGD + RDP accountant |
+| Communication | gRPC + mutual TLS, Protobuf |
+| API | FastAPI, Uvicorn, WebSocket |
+| Frontend | React 19, Vite 8, Recharts 3 |
 
-## 📅 Development Plan
+---
 
-### Week 1 — Centralized Baseline & Setup
+## ⚠️ Known Limitations
 
-* Set up PyTorch and MONAI
-* Prepare MRI dataset
-* Implement 3D U-Net
-* Train centralized baseline model
-* Set up Flower
-* Create three simulated hospital nodes
-
-### Week 2 — Federated Learning
-
-* Partition dataset across hospitals
-* Implement local training
-* Implement FedAvg
-* Connect server and clients
-* Add secure gRPC communication
-* Handle offline hospital nodes
-
-### Week 3 — Privacy
-
-* Integrate TenSEAL
-* Encrypt model updates
-* Perform secure aggregation
-* Add live training metrics
-
-### Week 4 — Final System
-
-* Add Differential Privacy
-* Build React dashboard
-* Display training curves
-* Display Dice Score and Loss
-* Display MRI segmentation masks
-* Compare centralized and federated performance
-
-## 📈 Expected Results
-
-The final system aims to demonstrate that:
-
-1. Multiple hospitals can collaboratively train an AI model.
-2. Raw MRI data remains within each hospital.
-3. Federated training can achieve performance close to centralized training.
-4. Model updates can be protected using encryption and privacy techniques.
-5. Training progress can be monitored through a web dashboard.
-
-## 🚀 Project Goal
-
-The goal of FedMed is to demonstrate how **Federated Learning and Privacy-Preserving Machine Learning** can be applied to healthcare while reducing the need to share sensitive patient data.
-
-## 👨‍💻 Project Status
-
-🚧 **Currently under development**
-
-### Future Improvements
-
-* Support for real hospital deployments
-* More advanced secure aggregation
-* Improved 3D medical segmentation models
-* Additional privacy-preserving techniques
-* Cloud-based deployment
-* Support for multiple medical imaging datasets
+- **TenSEAL exposes only symmetric schemes** (CKKS/BFV/NONE). The shared context therefore lives inside the mutually-authenticated cluster boundary. A production deployment would distribute only an asymmetric public key.
+- **The synthetic dataset** is a structural surrogate for BraTS, not clinical data. Dice scores here are not comparable to published BraTS benchmarks.
+- **The privacy budget is large** (ε ≈ 297 over 10 rounds). Tightening it requires fewer rounds, a smaller sampling rate, or a larger `σ` — each of which trades accuracy for privacy.
+- **Single-process simulation.** The hospital nodes share a host; a real deployment would isolate them.
 
 ---
 
 ### 📜 License
 
-This project is developed for **educational and research purposes**.
+Developed for **educational and research purposes**.

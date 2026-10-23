@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package fedmed;
+
+// FedMed node coordination service.
+//
+// This gRPC channel carries the *control plane* between the central
+// aggregator and each hospital node: readiness probes, heartbeat, and the
+// distribution of the HE context and the current global model. The model
+// updates themselves travel over Flower's own (TLS-secured) transport; this
+// service lets the aggregator verify each node's health independently.
+
+service FedMedNode {
+  // Liveness/readiness probe with node metadata.
+  rpc CheckHealth(HealthRequest) returns (HealthResponse);
+
+  // Distribute the CKKS context + current global model to a node.
+  rpc SyncModel(SyncModelRequest) returns (SyncModelResponse);
+
+  // Node reports the outcome of a completed local training round.
+  rpc ReportRound(RoundReportRequest) returns (RoundReportResponse);
+}
+
+message HealthRequest {
+  string node_id = 1;
+}
+
+message HealthResponse {
+  bool healthy = 1;
+  string node_id = 2;
+  string hospital_id = 3;
+  int32 samples = 4;
+  bool encryption_enabled = 5;
+  bool differential_privacy_enabled = 6;
+  int64 server_timestamp = 7;
+  string protocol = 8;
+  bool tls = 9;
+}
+
+message SyncModelRequest {
+  string node_id = 1;
+  // Serialised TenSEAL CKKS context (bytes).
+  bytes he_context = 2;
+  // Flat float32 global model weights.
+  bytes global_model = 3;
+  int64 round = 4;
+  float learning_rate = 5;
+  int32 local_epochs = 6;
+}
+
+message SyncModelResponse {
+  bool accepted = 1;
+  string message = 2;
+  int64 synced_at = 3;
+}
+
+message RoundReportRequest {
+  string node_id = 1;
+  int32 round = 2;
+  float local_loss = 3;
+  float local_dice = 4;
+  int64 payload_bytes = 5;
+  bool encrypted = 6;
+  float duration_seconds = 7;
+}
+
+message RoundReportResponse {
+  bool acknowledged = 1;
+  string message = 2;
+}

@@ -1,0 +1,28 @@
+# FedMed Backend — Cross-Silo Federated Learning Engine
+# Python 3.14 / arm64 macOS
+
+# --- Core ML ---
+torch==2.10.0
+monai==1.6.1
+numpy>=2.4,<3
+
+# --- Federated Learning ---
+flwr==1.42.0
+
+# --- Privacy ---
+tenseal==0.3.18
+
+# --- API / Realtime ---
+fastapi>=0.121
+uvicorn[standard]>=0.41
+websockets>=15
+pydantic>=2.13
+
+# --- gRPC (secure transport between server and hospital nodes) ---
+grpcio>=1.76
+grpcio-tools>=1.76
+protobuf>=6.33
+
+# --- Utilities ---
+tqdm>=4.68
+python-dotenv>=1.2
