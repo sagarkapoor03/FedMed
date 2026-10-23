@@ -63,6 +63,15 @@ def main():
 
     assert rounds_data, "no rounds recorded"
 
+    # Flower numbers rounds 1..num_rounds. The recorded round labels must
+    # match exactly -- an off-by-one here makes the dashboard report
+    # "11 of 10 rounds" and shifts the dropout round.
+    recorded = sorted(r["round"] for r in rounds_data)
+    print(f"\nRecorded round labels: {recorded}")
+    assert recorded == list(range(1, len(rounds_data) + 1)), (
+        f"round labels are not 1..N: {recorded}"
+    )
+
     modes = {r["aggregation"] for r in rounds_data}
     print(f"\nAggregation modes used: {modes}")
     assert "homomorphic_ckks" in modes, f"HE aggregation not used: {modes}"

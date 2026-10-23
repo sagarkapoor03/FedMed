@@ -13,15 +13,15 @@ All numbers below are produced by the code in this repository and were measured 
 | Metric | Value |
 | --- | --- |
 | Centralized baseline Dice | **52.83 %** |
-| Federated global model Dice | **35.87 %** (best of 10 rounds) |
-| Federated / baseline ratio | **67.9 %** |
+| Federated global model Dice | **38.10 %** (best of 10 rounds) |
+| Federated / baseline ratio | **72.1 %** |
 | Aggregation mode | `homomorphic_ckks` (3/3 updates encrypted every round) |
 | Final DP budget | ε ≈ 297, δ = 1e-5 (RDP accountant) |
 | Encrypted payload per round | ~48.7 MB per node |
 | Homomorphic sum precision | ≤ 4e-6 absolute error |
 | Node resilience | Round survives a hospital dropping offline (verified) |
 
-> The federated model reaches ~68 % of centralized accuracy **while every update stays encrypted end-to-end** and every patient's gradient is clipped and noised. The remaining gap is the expected cost of the privacy budget — the noise injected by DP-SGD is the dominant term.
+> The federated model reaches ~72 % of centralized accuracy **while every update stays encrypted end-to-end** and every patient's gradient is clipped and noised. The remaining gap is the expected cost of the privacy budget — the noise injected by DP-SGD is the dominant term.
 
 ---
 

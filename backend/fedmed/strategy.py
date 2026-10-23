@@ -153,7 +153,7 @@ class FederatedStrategy(Strategy):
         self._resolve_identities(clients)
 
         # Node resilience: exclude the victim node from the round.
-        if self.dropout_round and server_round + 1 == self.dropout_round:
+        if self.dropout_round and server_round == self.dropout_round:
             victim_hospital = self._hospital_for_index(self.dropout_node)
             kept = []
             for client in clients:
@@ -169,12 +169,12 @@ class FederatedStrategy(Strategy):
                         {
                             "hospital_id": hospital_id,
                             "node_id": self.node_to_hospital.get(hospital_id),
-                            "round": server_round + 1,
+                            "round": server_round,
                         },
                     )
                     logger.warning(
                         "Round %d: excluding %s (simulated offline)",
-                        server_round + 1,
+                        server_round,
                         hospital_id,
                     )
                     continue
@@ -190,7 +190,7 @@ class FederatedStrategy(Strategy):
                 total_examples += int(self._sample_counts.get(hospital_id, 0))
 
         config = {
-            "round": server_round + 1,
+            "round": server_round,
             "local_epochs": CONFIG.federated.local_epochs,
             "learning_rate": CONFIG.federated.learning_rate,
             "batch_size": CONFIG.federated.batch_size,
@@ -210,7 +210,7 @@ class FederatedStrategy(Strategy):
         self, server_round: int, results: list, failures: list
     ) -> tuple:
         """Aggregate client updates, homomorphically when encrypted."""
-        self._round = server_round + 1
+        self._round = server_round
         round_index = self._round
 
         for _, failure in failures or []:
@@ -374,7 +374,7 @@ class FederatedStrategy(Strategy):
         clients = client_manager.sample(
             num_clients=sample_size, min_num_clients=min_num_clients
         )
-        evaluate_ins = fct.EvaluateIns(parameters, {"round": server_round + 1})
+        evaluate_ins = fct.EvaluateIns(parameters, {"round": server_round})
         return [(client, evaluate_ins) for client in clients]
 
     def aggregate_evaluate(
